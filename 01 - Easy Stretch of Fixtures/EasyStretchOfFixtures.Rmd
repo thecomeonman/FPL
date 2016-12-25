@@ -1,6 +1,6 @@
 ---
 title: "Easy Stretch of Fixtures"
-output: html_document
+output: md_document
 ---
 
 It's a pain to identify stretches of appealing fixtures. The coloured indicators that FPL tacked on in 2016-17 don't seem to update with performances.
