@@ -1,0 +1,619 @@
+---
+title: "Easy Stretch of Fixtures"
+output: html_document
+---
+
+It's a pain to identify stretches of appealing fixtures. The coloured indicators that FPL tacked on in 2016-17 don't seem to update with performances.
+
+The charts below try to highlight four aspects that one would typically look for when trying to decide transfers.
+
+The thresholds, etc. aren't some sort of recommendation. Feel free to change them if some other number makes more sense.
+
+PS1: I might update this every week or not. 
+PS2: I think this code should be okay with double gameweeks. If it isn't, 'll try and fix it at the earliest.
+
+```{r Libraries, echo=FALSE, message=FALSE, warning=FALSE, error=FALSE, results='hide'}
+
+vcLibraries = c('ggplot2','data.table','RCurl','rjson','XML','zoo')
+
+vcInstallLibraries = setdiff(
+   vcLibraries, 
+   installed.packages()
+)
+   
+if ( length(vcInstallLibraries) > 0 ) {
+   install.packages(vcInstallLibraries)
+}
+
+lapply(
+   vcLibraries, 
+   require, 
+   character.only = TRUE
+)
+
+theme_set(theme_bw(12))
+
+```
+
+```{r GlobalParameters, echo=FALSE, message=FALSE, warning=FALSE, error=FALSE, results='hide'}
+
+# The minimum length of the rolling window to be marked as a stretch.
+iGWSpan = 6
+# The minimum number of matches that must meet the crtieria in any rolling window to be marked as an easy stretch
+iNbrEasyMatches = 4
+
+dtTeamID = data.table(
+   TeamID = 1:20,
+   Team = c(
+      'ARS',
+      'BOU',
+      'BUR',
+      'CHE',
+      'CRY',
+      'EVE',
+      'HUL',
+      'LEI',
+      'LIV',
+      'MCI',
+      'MUN',
+      'MID',
+      'SOU',
+      'STK',
+      'SUN',
+      'SWA',
+      'TOT',
+      'WAT',
+      'WBA',
+      'WHU'
+   )
+)
+
+```
+
+```{r FunctionDeclarations, echo=FALSE, message=FALSE, warning=FALSE, error=FALSE, results='hide'}
+
+#' Identify whether a criterion is met a certain number of times in a continuous stretch of gameweeks
+#' @param viGW integer vector of gameweeks
+#' @param vOpponentStat vector of relevant statistic
+#' @param iStatThreshold The threshold to check against vOpponentStat
+#' @param cThresholdOperator Limited to operators. Applied as cThresholdOperator(vOpponentStat, iStatThreshold)
+#' @param iGWStretch Number of gameweeks to include in rolling window
+#' @param iNbrEasyMatches The minimum number (i.e. >=) of matches that must satisfy the iStatThreshold for that window to be marked TRUE.
+#' @return boolean vector against viGW to mark the weeks which meet the criteria
+fEasyMatchesInStretch = function(
+   viGW,
+   vOpponentStat,
+   iStatThreshold,
+   cThresholdOperator = '>',
+   iGWStretch = iGWSpan,
+   iNbrEasyMatches = iNbrEasyMatches
+) {
+
+   # sorting the statistic in order of gameweeks
+   vOpponentStat = vOpponentStat[order(viGW)]
+   viUnsortedGW = viGW
+   viGW = sort(viGW)
+
+   # Checking the criterion in a rolling window of length iGWStretch
+   dtEasyStretches = data.table(
+      EasyStretch = sapply(
+         (min(viGW) - iGWStretch + 1):max(viGW),
+         function(iGW) {
+
+            sum(
+               get(cThresholdOperator)(
+                  vOpponentStat[viGW %in% c(iGW:(iGW + iGWStretch - 1))],
+                  iStatThreshold
+               )
+            ) >= iNbrEasyMatches
+
+
+         }
+      ),
+      GW = (min(viGW) - iGWStretch + 1):max(viGW)
+   )
+
+   # Same GW might be part of multiple windows. 
+   # Aggretating this information to check whether a GW is a part of any window at all
+   dtEasyStretches = dtEasyStretches[,
+      list(EasyStretch = any(EasyStretch)),
+      GW
+   ]
+
+   # If no easy streches, then return all FALSE.
+   if (dtEasyStretches[!is.na(EasyStretch), !any(EasyStretch)]) {
+      return ( rep(F, length(viGW)) )
+   }
+
+   # Else return TRUEs against the GWs which are a part of an easy stretch
+   dtEasyStretches = dtEasyStretches[
+      EasyStretch == T,
+      list(GW2 = c((GW:(GW+iGWStretch-1)))),
+      GW
+   ]
+
+   viUnsortedGW %in% dtEasyStretches[, GW2]
+
+}
+
+```
+
+```{r LoadingData, echo=FALSE, message=FALSE, warning=FALSE, error=FALSE, results='hide'}
+
+# scraping data
+dtData = data.table()
+lData = list()
+
+for ( iGW in 1:38 ) {
+
+   jsonGW <- readLines(
+      paste0('https://fantasy.premierleague.com/drf/fixtures/?event=', iGW)
+   )
+   
+   lGW <- fromJSON(
+      paste(
+         jsonGW, 
+         collapse=""
+      )
+   )
+   
+   lData[[length(lData) + 1]] = lGW
+
+   dtData = rbind(
+      dtData,
+      rbindlist(
+         lapply(
+            lGW,
+            function( lGWMatch ) {
+
+               rbind(
+                  data.table(
+                     TeamID = lGWMatch$team_h,
+                     OpponentID = lGWMatch$team_a,
+                     Scored = ifelse(
+                        is.null(lGWMatch$team_h_score),
+                        NA,
+                        lGWMatch$team_h_score
+                     ),
+                     Conceded = ifelse(
+                        is.null(lGWMatch$team_a_score),
+                        NA,
+                        lGWMatch$team_a_score
+                     ),
+                     At = 'H'
+                  ),
+                  data.table(
+                     TeamID = lGWMatch$team_a,
+                     OpponentID = lGWMatch$team_h,
+                     Scored = ifelse(
+                        is.null(lGWMatch$team_a_score),
+                        NA,
+                        lGWMatch$team_a_score
+                     ),
+                     Conceded = ifelse(
+                        is.null(lGWMatch$team_h_score),
+                        NA,
+                        lGWMatch$team_h_score
+                     ),
+                     At = 'A'
+                  )
+               )
+            }
+         )
+      )[, GW := iGW],
+      fill = T
+   )
+
+}
+
+dtData = merge(
+   dtData,
+   dtTeamID,
+   'TeamID'
+)
+
+dtData = merge(
+   dtData,
+   dtTeamID[, list(OpponentID = TeamID, Opponent = Team)],
+   'OpponentID'
+)
+
+# Finding the last GW that each team has played till
+dtData[,
+   PlayedGW := max(GW[!is.na(Scored)]),
+   Team
+]
+
+# Assigning points for the results
+dtData[
+   Scored > Conceded, 
+   Points := 3L
+]
+
+dtData[
+   Scored == Conceded, 
+   Points := 1L
+]
+
+dtData[
+   Scored < Conceded, 
+   Points := 0L
+]
+
+# Cumulatively calculating points, average conceded, average scored, etc.
+# Doing this not from the start of the season but from iGWSpan number of
+# gameweeks from the last played gameweek
+setkey(dtData, Team, GW)
+dtData[
+   GW > PlayedGW - iGWSpan & GW <= PlayedGW, 
+   AveragePoints := cumsum(Points) / c(1:.N), 
+   list(Team)
+]
+
+dtData[
+   GW > PlayedGW - iGWSpan & GW <= PlayedGW, 
+   AverageScored := cumsum(Scored) / c(1:.N), 
+   list(Team)
+]
+
+dtData[
+   GW > PlayedGW - iGWSpan & GW <= PlayedGW, 
+   AverageConceded := cumsum(Conceded) / c(1:.N), 
+   list(Team)
+]
+
+dtData[
+   !is.na(AveragePoints), 
+   Rank := 21L - rank(AveragePoints, ties = 'max'), 
+   GW
+]
+
+# The number at the last played GW is the number we consider for the future
+dtData[,
+   AveragePoints := na.locf(AveragePoints, na.rm = F), 
+   Team
+]
+
+dtData[, 
+   AverageScored := na.locf(AverageScored, na.rm = F), 
+   Team
+]
+
+dtData[,
+   AverageConceded := na.locf(AverageConceded, na.rm = F), 
+   Team
+]
+
+dtData[,
+   Rank := na.locf(Rank, na.rm = F), 
+   Team
+]
+
+# Getting the above details for the opponents on that GW
+dtData = merge(
+   dtData,
+   dtData[
+      GW == PlayedGW, 
+      list(
+         Opponent = Team,
+         OpponentRank = Rank,
+         OpponentAveragePoints = AveragePoints,
+         OpponentAverageScored = AverageScored,
+         OpponentAverageConceded = AverageConceded
+      )
+   ],
+   c('Opponent')
+)
+
+# The merge adds this data to the historic GWs also. Which is wrong.
+# Removing it
+dtData[ 
+   GW <= PlayedGW, 
+   OpponentRank := NA
+]
+
+dtData[ 
+   GW <= PlayedGW, 
+   OpponentAveragePoints := NA
+]
+
+dtData[ 
+   GW <= PlayedGW, 
+   OpponentAverageScored := NA
+]
+
+dtData[ 
+   GW <= PlayedGW, 
+   OpponentAverageConceded := NA
+]
+
+setkey(dtData, Team, GW)
+
+```
+
+
+```{r PointForm, echo=FALSE, message=FALSE, warning=FALSE, error=FALSE, results='hide', fig.width = 10, fig.height = 8}
+
+iStatThreshold = 10
+iNbrEasyMatches = 5
+iGWStretch = iGWSpan
+cThresholdOperator = '>='
+
+# Identifying easy stretches based on the table standings from the last iGWSpan gameweeks
+dtEasyStretchesFuture = dtData[
+   GW > PlayedGW,
+   list(
+      GW = GW[
+         fEasyMatchesInStretch(
+            viGW = GW,
+            vOpponentStat = OpponentRank,
+            iStatThreshold = iStatThreshold,
+            cThresholdOperator = cThresholdOperator,
+            iGWStretch = iGWStretch,
+            iNbrEasyMatches = iNbrEasyMatches
+         )
+      ]
+   ),
+   Team
+]
+
+setkey(dtEasyStretchesFuture, Team, GW)
+dtEasyStretchesFuture[,
+   Stretch := cumsum(c(2, diff(GW))>1),
+   Team
+]
+
+dtEasyStretchesFuture = merge(
+   dtData[, 
+      list(GW, Team, Rank)
+   ],
+   dtEasyStretchesFuture,
+   c('GW','Team')
+)
+
+# Doing the plot
+
+ggplot(dtData[GW > PlayedGW]) +
+   geom_line(
+      data = dtEasyStretchesFuture, 
+      aes(
+         x = GW, 
+         y = Team, 
+         group = paste(Stretch, Team), 
+         alpha = -Rank
+      ),
+      size = 5
+   ) +
+   geom_point(
+      aes(
+         x = GW, 
+         y = Team, 
+         fill = OpponentRank
+      ), 
+      shape = 21, 
+      size = 5
+   ) +
+   scale_fill_continuous(
+      low = 'red', 
+      high = 'green'
+   ) +
+   scale_alpha_continuous(
+      breaks = c(-20,-10,-1), 
+      labels = c(20, 10, 1), 
+      name = 'Team Rank'
+   ) +
+   theme(
+      legend.position = 'bottom',
+      legend.background = element_rect(colour = 'black'),
+      plot.background = element_rect(fill = "grey95")
+   ) +
+   labs(
+      title = 'Favourable Stretches of Fixtures Against Low Ranking Teams',
+      caption = paste0(
+         "\nAt least ", iNbrEasyMatches, " matches in ", iGWSpan," gameweeks with opponents ranked ", cThresholdOperator, " ", iStatThreshold, "
+         The black streaks mark the easy stretches. The darker it is, the higher the rank of the team itself in recent weeks.
+         Author: TheComeOnMan
+         Data: premierleague.com"
+      ),
+      x = 'Game week',
+      y = 'Team'
+   )
+
+```
+
+
+```{r ScoredForm, echo=FALSE, message=FALSE, warning=FALSE, error=FALSE, results='hide', fig.width = 10, fig.height = 8}
+
+iStatThreshold = 1
+iNbrEasyMatches = 4
+cThresholdOperator = '<='
+iGWStretch = iGWSpan
+# Identifying easy stretches based on the goals scored by the oppostion from the last iGWSpan gameweeks
+dtEasyStretchesFuture = dtData[
+   GW > PlayedGW,
+   list(
+      GW = GW[
+         fEasyMatchesInStretch(
+            viGW = GW,
+            vOpponentStat = OpponentAverageScored,
+            cThresholdOperator = cThresholdOperator,
+            iStatThreshold = 1,
+            iGWStretch = iGWStretch,
+            iNbrEasyMatches = iNbrEasyMatches
+         )
+      ]
+   ),
+   Team
+]
+
+setkey(dtEasyStretchesFuture, Team, GW)
+dtEasyStretchesFuture[, Stretch := cumsum(c(2, diff(GW))>1), Team]
+dtEasyStretchesFuture = merge(
+   dtData[GW >= PlayedGW, list(GW, Team, AverageConceded)],
+   dtEasyStretchesFuture,
+   c('GW','Team')
+)
+
+# Doing the plot
+
+ggplot(dtData[GW > PlayedGW]) +
+   geom_line(data = dtEasyStretchesFuture, aes(x = GW, y = Team, group = paste(Stretch, Team), alpha = -AverageConceded), size = 5) +
+   geom_point(aes(x = GW, y = Team, fill = OpponentAverageScored), shape = 21, size = 5) +
+   ggtitle('Favourable stretches to buy defensive players') +
+   # scale_color_manual(values = c('H' = 'black', 'A' = 'grey80'), name = 'Played At') +
+   scale_fill_continuous(low = 'green', high = 'red', name = 'Average Goals Scored\nBy Opponent Recently') +
+scale_alpha_continuous(breaks = c(-2,-1.5,-1,0), labels = c(2, 1.5, 1, 0), name = 'Average Goals\nConceded Recently') +
+   theme(
+      legend.position = 'bottom',
+      legend.background = element_rect(colour = 'black'),
+      plot.background = element_rect(fill = "grey95")
+   ) +
+   labs(
+      title = 'Favourable Stretches of Fixtures to Buy Defensive Players',
+      caption = paste0("\nAt least ", iNbrEasyMatches," matches in ", iGWSpan," gameweeks with opponents who have scored ", cThresholdOperator, " ", iStatThreshold, " goals on average in the last ", iGWSpan," matches.
+       The black streaks mark the easy stretches. The darker it is, the better the defending results for the team itself in recent weeks.
+      Author: TheComeOnMan
+      Data: premierleague.com"),
+      x = 'Game week',
+      y = 'Team'
+   )
+
+```
+
+
+```{r ConcededForm, echo=FALSE, message=FALSE, warning=FALSE, error=FALSE, results='hide', fig.width = 10, fig.height = 8}
+
+iStatThreshold = 1.75
+iNbrEasyMatches = 4
+cThresholdOperator = '>='
+iGWStretch = iGWSpan
+# Identifying easy stretches based on the goals conceded by the oppostion from the last iGWSpan gameweeks
+dtEasyStretchesFuture = dtData[
+   GW > PlayedGW,
+   list(
+      GW = GW[
+         fEasyMatchesInStretch(
+            viGW = GW,
+            vOpponentStat = OpponentAverageConceded,
+            cThresholdOperator = cThresholdOperator,
+            iStatThreshold = iStatThreshold,
+            iGWStretch = iGWStretch,
+            iNbrEasyMatches = iNbrEasyMatches
+         )
+      ]
+   ),
+   Team
+]
+
+setkey(dtEasyStretchesFuture, Team, GW)
+dtEasyStretchesFuture[, Stretch := cumsum(c(2, diff(GW))>1), Team]
+dtEasyStretchesFuture = merge(
+   dtData[GW >= PlayedGW, list(GW, Team, AverageScored)],
+   dtEasyStretchesFuture,
+   c('GW','Team')
+)
+
+# Doing the plot
+ggplot(dtData[GW > PlayedGW]) +
+   geom_line(data = dtEasyStretchesFuture, aes(x = GW, y = Team, group = paste(Stretch, Team), alpha = AverageScored), size = 5) +
+   geom_point(aes(x = GW, y = Team, fill = OpponentAverageConceded), shape = 21, size = 5) +
+   # scale_color_manual(values = c('H' = 'black', 'A' = 'grey80'), name = 'Played At') +
+   scale_fill_continuous(low = 'red', high = 'green', name = 'Average Goals Conceded\nBy Opponent Recently') +
+scale_alpha_continuous(breaks = c(2,1.5,1,0), labels = c(2, 1.5, 1, 0), name = 'Average Goals\nScored Recently') +
+   theme(
+      legend.position = 'bottom',
+      legend.background = element_rect(colour = 'black'),
+      plot.background = element_rect(fill = "grey95")
+   ) + 
+   labs(
+      title = 'Favourable Stretches of Fixtures to Buy Offensive Players',
+      caption = paste0("\nAt least ", iNbrEasyMatches," matches in ", iGWStretch," gameweeks with opponents who have conceded ", cThresholdOperator, " ", iStatThreshold, " goals on average in the last ", iGWSpan," matches.
+      The black streaks mark the easy stretches. The darker it is, the better the attacking results for the team itself in recent weeks.
+      Author: TheComeOnMan
+      Data: premierleague.com"),
+      x = 'Game week',
+      y = 'Team'
+   )
+
+
+if ( F ) {
+ 
+   ggplot(dtData[GW > PlayedGW]) +
+      geom_line(data = merge(dtData[GW >= PlayedGW, list(GW, Team, AverageScored, OpponentAverageConceded)],dtEasyStretchesFuture,c('GW','Team')), aes(x = GW, y = OpponentAverageConceded, group = paste(Stretch, Team), alpha = AverageScored), size = 3) +
+      geom_line(aes(x = GW, y = OpponentAverageConceded), size = 0.5) +
+      geom_point(aes(x = GW, y = OpponentAverageConceded, color = At), size = 3) +
+      scale_color_manual(values = c('H' = 'black', 'A' = 'grey80'), name = 'Played At') +
+      scale_fill_continuous(low = 'red', high = 'green', name = 'Average Goals Conceded\nBy Opponent Recently') +
+   scale_alpha_continuous(breaks = c(2,1.5,1,0), labels = c(2, 1.5, 1, 0), name = 'Average Goals\nScored Recently') +
+      ggtitle('Favourable Stretches of Fixtures to Buy Offensive Players') +
+      theme(
+         legend.position = 'bottom',
+         legend.background = element_rect(colour = 'black')
+      ) +
+      facet_grid(Team~.)
+   
+}
+
+
+```
+
+```{r HomeGames, echo=FALSE, message=FALSE, warning=FALSE, error=FALSE, results='hide', fig.width = 10, fig.height = 8}
+
+iStatThreshold = 'H'
+iNbrEasyMatches = 3
+cThresholdOperator = '=='
+iGWStretch = 4
+
+# Identifying easy stretches based on the table standings from the last iGWSpan gameweeks
+dtEasyStretchesFuture = dtData[
+   GW > PlayedGW,
+   list(
+      GW = GW[
+         fEasyMatchesInStretch(
+            viGW = GW,
+            vOpponentStat = At,
+            iStatThreshold = iStatThreshold,
+            cThresholdOperator = cThresholdOperator,
+            iGWStretch = iGWStretch,
+            iNbrEasyMatches = iNbrEasyMatches
+         )
+      ]
+   ),
+   Team
+]
+
+setkey(dtEasyStretchesFuture, Team, GW)
+dtEasyStretchesFuture[,
+   Stretch := cumsum(c(2, diff(GW))>1),
+   Team
+]
+
+dtEasyStretchesFuture = merge(
+   dtData[GW >= PlayedGW, list(GW, Team, Rank)],
+   dtEasyStretchesFuture,
+   c('GW','Team')
+)
+
+# Doing the plot
+
+ggplot(dtData[GW > PlayedGW]) +
+   geom_line(data = dtEasyStretchesFuture, aes(x = GW, y = Team, group = paste(Stretch, Team), alpha = -Rank), size = 5) +
+   geom_point(aes(x = GW, y = Team, fill = OpponentRank), shape = 21, size = 5) +
+   scale_fill_continuous(low = 'red', high = 'green') +
+   scale_alpha_continuous(breaks = dtEasyStretchesFuture[, -rev(sort(unique(Rank)))], labels = dtEasyStretchesFuture[, rev(sort(unique(Rank)))], name = 'Team Rank') +
+   theme(
+      legend.position = 'bottom',
+      legend.background = element_rect(colour = 'black'),
+      plot.background = element_rect(fill = "grey95")
+   ) +
+   labs(
+      title = 'Favourable Stretches of Fixtures Being Played At Home',
+      caption = paste0("\nAt least ", iNbrEasyMatches," matches over ", iGWStretch," gameweeks with the match at ", iStatThreshold, "
+      The black streaks mark the stretches with lots of home matches. The darker it is, the higher the rank of the team itself in recent weeks.
+      Author: TheComeOnMan
+      Data: premierleague.com"),
+      x = 'Game week',
+      y = 'Team'
+   )
+
+```
