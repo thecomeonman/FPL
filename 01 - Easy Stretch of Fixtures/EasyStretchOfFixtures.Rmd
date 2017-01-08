@@ -405,7 +405,7 @@ ggplot(dtData[GW > PlayedGW]) +
       plot.background = element_rect(fill = "grey95")
    ) +
    labs(
-      title = 'Favourable Stretches of Fixtures Against Low Ranking Teams',
+      title = paste0('Favourable Stretches of Fixtures Against Low Ranking Teams as on ', Sys.Date()),
       caption = paste0(
          "\nAt least ", iNbrEasyMatches, " matches in ", iGWSpan," gameweeks with opponents ranked ", cThresholdOperator, " ", iStatThreshold, "
          The black streaks mark the easy stretches. The darker it is, the higher the rank of the team itself in recent weeks.
@@ -456,7 +456,6 @@ dtEasyStretchesFutureDefense = merge(
 ggplot(dtData[GW > PlayedGW]) +
    geom_line(data = dtEasyStretchesFutureDefense, aes(x = GW, y = Team, group = paste(Stretch, Team), alpha = -AverageConceded), size = 5) +
    geom_point(aes(x = GW, y = Team, fill = OpponentAverageScored), shape = 21, size = 5) +
-   ggtitle('Favourable stretches to buy defensive players') +
    # scale_color_manual(values = c('H' = 'black', 'A' = 'grey80'), name = 'Played At') +
    scale_fill_continuous(low = 'green', high = 'red', name = 'Average Goals Scored\nBy Opponent Recently') +
 scale_alpha_continuous(breaks = c(-2,-1.5,-1,0), labels = c(2, 1.5, 1, 0), name = 'Average Goals\nConceded Recently') +
@@ -466,7 +465,7 @@ scale_alpha_continuous(breaks = c(-2,-1.5,-1,0), labels = c(2, 1.5, 1, 0), name 
       plot.background = element_rect(fill = "grey95")
    ) +
    labs(
-      title = 'Favourable Stretches of Fixtures to Buy Defensive Players',
+      title = paste('Favourable stretches to buy defensive players as on ', Sys.Date()),
       caption = paste0("\nAt least ", iNbrEasyMatches," matches in ", iGWSpan," gameweeks with opponents who have scored ", cThresholdOperator, " ", iStatThreshold, " goals on average in the last ", iGWSpan," matches.
        The black streaks mark the easy stretches. The darker it is, the better the defending results for the team itself in recent weeks.
       Author: TheComeOnMan
@@ -523,7 +522,7 @@ scale_alpha_continuous(breaks = c(2,1.5,1,0), labels = c(2, 1.5, 1, 0), name = '
       plot.background = element_rect(fill = "grey95")
    ) + 
    labs(
-      title = 'Favourable Stretches of Fixtures to Buy Offensive Players',
+      title = paste0('Favourable Stretches of Fixtures to Buy Offensive Players as on ', Sys.Date()),
       caption = paste0("\nAt least ", iNbrEasyMatches," matches in ", iGWStretch," gameweeks with opponents who have conceded ", cThresholdOperator, " ", iStatThreshold, " goals on average in the last ", iGWSpan," matches.
       The black streaks mark the easy stretches. The darker it is, the better the attacking results for the team itself in recent weeks.
       Author: TheComeOnMan
@@ -542,7 +541,6 @@ if ( F ) {
       scale_color_manual(values = c('H' = 'black', 'A' = 'grey80'), name = 'Played At') +
       scale_fill_continuous(low = 'red', high = 'green', name = 'Average Goals Conceded\nBy Opponent Recently') +
    scale_alpha_continuous(breaks = c(2,1.5,1,0), labels = c(2, 1.5, 1, 0), name = 'Average Goals\nScored Recently') +
-      ggtitle('Favourable Stretches of Fixtures to Buy Offensive Players') +
       theme(
          legend.position = 'bottom',
          legend.background = element_rect(colour = 'black')
@@ -604,7 +602,7 @@ ggplot(dtData[GW > PlayedGW]) +
       plot.background = element_rect(fill = "grey95")
    ) +
    labs(
-      title = 'Favourable Stretches of Fixtures Being Played At Home',
+      title = paste0('Favourable Stretches of Fixtures Being Played At Home as on', Sys.Date()),
       caption = paste0("\nAt least ", iNbrEasyMatches," matches over ", iGWStretch," gameweeks at ", iStatThreshold, "
       The black streaks mark the stretches with lots of home matches. The darker it is, the higher the rank of the team itself in recent weeks.
       Author: TheComeOnMan
@@ -627,7 +625,7 @@ ggplot(dtData[GW > PlayedGW]) +
       plot.background = element_rect(fill = "grey95")
    ) +
    labs(
-      title = 'Favourable Stretches of Fixtures Being Played At Home',
+      title = paste0('Favourable Stretches of Fixtures Being Played At Home as on ', Sys.Date()),
       caption = paste0("\nThe black streaks mark the respectable favourable stretches.
       Author: TheComeOnMan
       Data: premierleague.com"),
