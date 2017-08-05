@@ -1,0 +1,583 @@
+---
+title: "Optimal Team Configuration"
+output: html_document
+---
+
+There has been a lot of talk about defenders being better value for money than midfielders and forwards. I'd written a post about [the optimal team configuration](http://thecomeonman.blogspot.com/2014/08/fantasy-football-1-team-composition.html) a long time ago and since it was only one season of data, I thought I'd just check it again.
+
+```{r Libraries, echo=FALSE, message=FALSE, warning=FALSE, error=FALSE, results='hide'}
+
+rm(list = ls())
+
+library(data.table)
+library(ggplot2)
+library(xtable)
+library(pander)
+library(lpSolve)
+library(lpSolveAPI)
+
+theme_set(theme_bw(12))
+panderOptions('keep.line.breaks', TRUE)
+panderOptions('table.split.table', Inf)
+
+```
+
+
+```{r StaticParms, echo=FALSE, message=FALSE, warning=FALSE, error=FALSE, results='hide'}
+vcLastFourSeasons = c('2013/14','2014/15','2015/16','2016/17')
+
+dtteam_names = data.table(
+   team = as.character(1:20),
+   team_name = c('ARS','BOU','BHA','BUR','CHE','CRY','EVE','HUD','LEI','LIV','MCI','MUN','NEW','SOU','STK','SWA','TOT','WAT','WBA','WHU')
+)
+```
+
+```{r Data, echo=FALSE, message=FALSE, warning=FALSE, error=FALSE, results='hide'}
+
+load("/media/ask/9b07b759-3e7b-49b4-b47d-3a60ba5b17fd/Personal/PersonalProjects/Fantasy League/Data/2017-18/data_before01.Rdata")
+
+dtDataset = rbindlist(
+   lapply(
+         seq(length(allplayers)),
+         function( iPlayer ) {
+            
+            lPlayer = allplayers[[iPlayer]]
+            lPlayerStatic = allplayersstatic$elements[[iPlayer]]
+
+            vcDetails = unlist(lPlayerStatic[c('team_code','first_name','second_name','element_type','team')])
+
+            if ( length(lPlayer$history_past) > 0 ) {
+
+               rbindlist(
+                  lapply(
+                     lPlayer$history_past,
+                     function(lPlayerHistoryPast) {
+
+                     vcDetails = c(
+                        vcDetails, 
+                        unlist(lPlayerHistoryPast)
+                     )
+
+                     data.table(
+                        t(vcDetails)
+                     )
+
+                  }
+               )
+            )
+
+         }
+            
+       }
+   ),
+   fill = T
+)
+
+dtDataset = dtDataset[!is.na(season_name)]
+
+dtDataset = merge(
+   dtDataset,
+   dtteam_names,
+   'team'
+)
+
+dtPositions = rbindlist(lapply(allplayersstatic$element_types, function(x) {data.table(as.character(x$id), x$singular_name_short)}))
+setnames(dtPositions, c('element_type','position'))
+# dtPositions[, position := factor(x = position, levels = c('GKP','DEF','MID','FWD'))]
+
+dtDataset = merge(
+   dtDataset,
+   dtPositions,
+   'element_type'
+)
+
+dtDataset[, minutes := as.integer(as.character(minutes))]
+dtDataset[, start_cost := as.integer(as.character(start_cost))/10]
+dtDataset[, total_points := as.integer(as.character(total_points))]
+dtDataset[, total_points_per_app := total_points / 38]
+
+dtRegularsDataset = dtDataset[season_name %in% vcLastFourSeasons][minutes > (90 * 19)]
+# rm(dtDataset)
+
+```
+
+
+
+```{r OverallSensitivityTrend, echo=FALSE, message=FALSE, warning=FALSE, error=FALSE, results='hide', fig.height=8, fig.width=12}
+
+# Incremental value of the pound
+if ( F ) {
+
+   ggplot(dtRegularsDataset, aes(x = start_cost, y = total_points, color = position)) + 
+      geom_smooth(method = 'lm', alpha = 0) +
+      # geom_jitter() +
+      geom_text(aes(label = second_name), position = 'jitter') +
+      facet_grid(season_name~position) +
+      geom_blank()
+
+
+   ggplot(dtRegularsDataset, aes(x = start_cost, y = total_points, color = position)) + 
+      geom_smooth(method = 'lm', alpha = 0) +
+      # geom_jitter() +
+      geom_blank() +
+      facet_wrap(~season_name) +
+      geom_blank()
+      
+}
+
+if ( F) {
+      
+   ggplot(dtRegularsDataset, aes(x = start_cost, y = total_points, color = position)) + 
+      geom_smooth(method = 'lm', alpha = 0) +
+      # geom_jitter() +
+      geom_blank() +
+      facet_wrap(~season_name) +
+      labs(
+         caption = paste0("Author: TheComeOnMan
+         Data: premierleague.com")
+      )
+   
+}
+```
+
+
+
+```{r OverallSensitivity, echo=FALSE, message=FALSE, warning=FALSE, error=FALSE, results='hide', fig.height=8, fig.width=12}
+
+dtSensitivity = rbindlist(lapply(
+   dtRegularsDataset[, unique(position)],
+   function( cposition ) {
+
+      rbindlist(lapply(
+         dtRegularsDataset[, unique(season_name)],
+         function ( cseason_name ) {
+
+            data.table(t(c(
+               cseason_name,
+               cposition,
+               lm(
+                  total_points~start_cost,
+                  dtRegularsDataset[season_name == cseason_name & position == cposition]
+               )$coefficients,
+               dtRegularsDataset[season_name == cseason_name & position == cposition, cor(total_points,start_cost)]
+            )))
+
+         }
+      ))
+      
+   }
+))
+
+setnames(
+   dtSensitivity,
+   c('season_name','position','intercept','slope','rsquare')
+)
+
+dtSensitivity[, intercept := as.numeric(intercept)]
+dtSensitivity[, slope := as.numeric(slope)]
+dtSensitivity[, rsquare := as.numeric(rsquare)]
+
+if ( F ) {
+   
+   ggplot(dtSensitivity) + 
+      # geom_point(aes(x = position, y = slope)) +
+      geom_text(aes(x = position, y = slope, label = paste(season_name, '(r2 =', round(rsquare, 2), ')'))) +
+      scale_colour_continuous(low = 'white', high = 'black', space = c(0,1)) +
+      labs(
+         title = 'Correlation of PPM with price',
+         caption = paste0("Author: TheComeOnMan
+         Data: premierleague.com")
+      )
+}
+```
+
+Assumptions 1:
+
+* I removed Chelsea and Leicester from 15/16 because of how unlikely both their performances were. Sure, there are swings in the table but those two teams in that season was a little too much. I feel the results are more representative without them.
+* Points per match is probably a better metric than total points but the historic data doesn't have a mention of matches started so we'll have to make do with total points. To minimise the effect, I have taken players that played at least 1710 minutes ( 19 matches of 90 minutes ) and hope that the patterns observed also extend to all the players put together.
+* The data exposed is only for players active in the current season. This means that players who played in earlier seasons but have since left the EPL are not considered in the analysis for their respective seasons.
+* Players get their positions changed over seasons. This is too small in number to worry about.
+
+### Value for money by position
+
+```{r SensitivityCorrection, echo=FALSE, message=FALSE, warning=FALSE, error=FALSE, results='hide', fig.height=8, fig.width=12}
+
+dtSensitivity = rbindlist(lapply(
+   dtRegularsDataset[, unique(position)],
+   function( cposition ) {
+
+      rbindlist(lapply(
+         dtRegularsDataset[, unique(season_name)],
+         function ( cseason_name ) {
+
+            data.table(t(c(
+               cseason_name,
+               cposition,
+               lm(
+                  total_points~start_cost,
+                  dtRegularsDataset[!(season_name == '2015/16' & team_name %in% c('CHE','LEI'))][season_name == cseason_name & position == cposition]
+               )$coefficients,
+               dtRegularsDataset[!(season_name == '2015/16' & team_name %in% c('CHE','LEI'))][season_name == cseason_name & position == cposition, cor(total_points,start_cost)]
+            )))
+
+         }
+      ))
+      
+   }
+))
+
+setnames(
+   dtSensitivity,
+   c('season_name','position','intercept','slope','rsquare')
+)
+
+dtSensitivity[, intercept := as.numeric(intercept)]
+dtSensitivity[, slope := as.numeric(slope)]
+dtSensitivity[, rsquare := as.numeric(rsquare)]
+
+ggplot(dtSensitivity) + 
+   # geom_point(aes(x = position, y = slope)) +
+   geom_text(aes(x = position, y = slope, label = paste(season_name, '(r2 =', round(rsquare, 2), ')'))) +
+   scale_colour_continuous(low = 'white', high = 'black', space = c(0,1)) +
+   labs(
+      title = 'Correlation of points with price (w/o CHE and LEI from 15/16)',
+      caption = paste0("Author: TheComeOnMan
+      Data: premierleague.com"),
+      y = 'Points per pound ( of starting price )'
+   )
+
+ggplot() + 
+   geom_abline(data = dtSensitivity, aes(slope = slope, intercept = intercept, color = position)) +
+   # geom_text(data = dtRegularsDataset, aes(x = start_cost, y = total_points, label = second_name), position = 'jitter') +
+   # facet_grid(position~season_name) +
+   xlim(4,14) +
+   ylim(0,300) +
+   facet_wrap(~season_name) +
+   labs(
+      title = 'Correlation of points with price (w/o CHE and LEI from 15/16)',
+      caption = paste0("Author: TheComeOnMan
+      Data: premierleague.com"),
+      y = 'Expected points',
+      x = 'Starting price'
+   )
+
+
+```
+
+
+If you force a linear relation between price and total points, goalkeepers, midfielders and forwards seem pretty tight together at about 15 points per pound, 15 points per pound, and 12 points per pound respectively. Defense, interestingly, seems to be rising every year with the last two years being well clear of the other positions. However the r-square values seem to be much better for midfielders and forwards indicating that the trend is more reliable for them than defenders or goalkepers.
+
+In the last season, considering defenders offered much better value per pound of starting cost than the other positions, it seems it would make sense to pick expensive defenders and then pick cheaper players in the other positions. But since the trend in the value per pound is unreliable, maybe it is safer to pick more midfielders and forwards?
+
+You can poke around in the following charts which offer a more detailed view into the data. The trends are drawn without the Chelsea and Leicester players from 15/16 even though they appear on the charts.
+
+```{r PlayerTypeSensitivity, echo=FALSE, message=FALSE, warning=FALSE, error=FALSE, results='hide', fig.height=8, fig.width=12}
+
+ggplot() + 
+   geom_abline(data = dtSensitivity[position == 'GKP'], aes(slope = slope, intercept = intercept)) +
+   geom_text(data = dtRegularsDataset[position == 'GKP'], aes(x = start_cost, y = total_points, label = second_name), position = 'jitter') +
+   facet_wrap(~season_name) +
+   labs(
+      title = 'GKP points with price',
+      caption = paste0("Author: TheComeOnMan
+      Data: premierleague.com"),
+      y = 'Total points',
+      x = 'Starting price'
+   )
+
+
+ggplot() + 
+   geom_abline(data = dtSensitivity[position == 'DEF'], aes(slope = slope, intercept = intercept)) +
+   geom_text(data = dtRegularsDataset[position == 'DEF'], aes(x = start_cost, y = total_points, label = second_name), position = 'jitter') +
+   facet_wrap(~season_name) +
+   labs(
+      title = 'DEF points with price',
+      caption = paste0("Author: TheComeOnMan
+      Data: premierleague.com"),
+      y = 'Total points',
+      x = 'Starting price'
+   )
+
+ggplot() + 
+   geom_abline(data = dtSensitivity[position == 'MID'], aes(slope = slope, intercept = intercept)) +
+   geom_text(data = dtRegularsDataset[position == 'MID'], aes(x = start_cost, y = total_points, label = second_name), position = 'jitter') +
+   facet_wrap(~season_name) +
+   labs(
+      title = 'MID points with price',
+      caption = paste0("Author: TheComeOnMan
+      Data: premierleague.com"),
+      y = 'Total points',
+      x = 'Starting price'
+   )
+
+ggplot() + 
+   geom_abline(data = dtSensitivity[position == 'FWD'], aes(slope = slope, intercept = intercept)) +
+   geom_text(data = dtRegularsDataset[position == 'FWD'], aes(x = start_cost, y = total_points, label = second_name), position = 'jitter') +
+   facet_wrap(~season_name) +
+   labs(
+      title = 'FWD points with price',
+      caption = paste0("Author: TheComeOnMan
+      Data: premierleague.com"),
+      y = 'Total points',
+      x = 'Starting price'
+   )
+
+```
+
+
+
+Assumptions 2:
+
+* Picking one static team at the start of the season which stays throughout the year.
+* No captaincy concept.
+* 18m set aside for substitutes, which means I can select a team costing 82m at most.
+* Players get their positions changed over seasons but for my convenience, I'm going to ignore that this happens.
+
+### Optimal team configs
+
+What we care about eventually though is the points total so I tried to find the best team I could have picked. I then removed all the players who figure in the best team from the dataset, and picked the next best team. I picked a total of 5 teams like this. 
+
+```{r Optimal, echo=FALSE, message=FALSE, warning=FALSE, error=FALSE, results = 'asis'}
+
+lOptimaList = list() 
+dtDatasetLastYear = dtDataset[season_name == vcLastFourSeasons[4]]
+
+for ( i in 1:5 ) {
+   
+   AvailableFinance <- 82
+   # AvailableFinance <- 82 + gwloop*.25
+   
+   lprec <- make.lp(0, nrow(dtDatasetLastYear))
+   set.type(lprec, seq(nrow(dtDatasetLastYear)), type = "binary")
+   
+   set.objfn(lprec, dtDatasetLastYear[, total_points])
+   
+   add.constraint(lprec, dtDatasetLastYear[, start_cost], "<=", AvailableFinance)
+   add.constraint(lprec, rep(1,nrow(dtDatasetLastYear)), "=", 11)
+   
+   add.constraint(lprec, dtDatasetLastYear[,as.character(position)=="GKP"], "=", 1)
+   add.constraint(lprec, dtDatasetLastYear[,as.character(position)=="DEF"], "<=", 5)
+   add.constraint(lprec, dtDatasetLastYear[,as.character(position)=="MID"], "<=", 5)  
+   add.constraint(lprec, dtDatasetLastYear[,as.character(position)=="FWD"], "<=", 3)
+   
+   add.constraint(lprec, dtDatasetLastYear[,as.character(position)=="DEF"], ">=", 3)
+   add.constraint(lprec, dtDatasetLastYear[,as.character(position)=="MID"], ">=", 1)
+   add.constraint(lprec, dtDatasetLastYear[,as.character(position)=="FWD"], ">=", 1)
+   
+   for ( i in unique(dtDatasetLastYear[,as.character(team)]))
+   {
+      add.constraint(lprec, dtDatasetLastYear[,as.character(team)==i], "<=", 3)
+   }
+   
+   set.bounds(lprec, lower = rep(0,nrow(dtDatasetLastYear)))
+   set.bounds(lprec, upper = rep(1,nrow(dtDatasetLastYear)))
+   
+   ColNames <- dtDatasetLastYear[, paste0(as.character(team_name), as.character(first_name), as.character(second_name))]
+   RowNames <- c("Finance", "NoOfPlayer","G=1","D<=5","M<=5","F<=3","D>=3","M>=2","F>=1",paste(unique(dtDatasetLastYear[,as.character(team)]),'<=3 players'))
+   
+   dimnames(lprec) <- list(RowNames, ColNames)
+   lp.control(lprec,sense='max')
+   # write.lp(lprec,'model.lp',type='lp') 
+   
+   solve(lprec)
+   get.objective(lprec)
+   
+   lOptimaList[[length(lOptimaList) + 1]] = dtDatasetLastYear[
+      get.variables(lprec) >0, 
+      c('id','first_name','second_name','position','team_name','total_points','start_cost'), 
+      with = FALSE
+   ][, Itern := as.integer(length(lOptimaList) + 1)]
+   
+   dtDatasetLastYear = dtDatasetLastYear[!id %in% lOptimaList[[length(lOptimaList)]][,id]]
+   
+}
+
+dtOptimaList = rbindlist(lOptimaList)
+rm(lOptimaList)
+
+pander(
+   dcast(
+      dtOptimaList[, 
+         list(
+            player_names = paste(
+               paste0(first_name, ' ', second_name,' (', round(total_points/start_cost), 'ppp @', start_cost ,')'), 
+               collapse = ', <br>'
+            )
+         ), 
+         list(Itern, position)
+      ],
+      Itern~position,
+      value.var = 'player_names'
+   )
+)
+
+
+dtSummary = dcast(
+   dtOptimaList[, 
+      .N, 
+      list(Itern, position_count = paste0(position, ' count'))
+   ], 
+   Itern~position_count
+)
+
+setDT(dtSummary)
+
+dtSummaryCost = dcast(
+   dtOptimaList[, 
+      list(start_cost = round(mean(start_cost), 1)), 
+      list(Itern, position_cost = paste0(position,' avg cost'))
+   ], 
+   Itern~position_cost
+)
+
+setDT(dtSummaryCost)
+
+dtSummary = merge(
+   dtSummaryCost,
+   dtSummary,
+   c('Itern')
+)
+
+dtSummary = merge(
+   dtOptimaList[, list(start_cost = sum(start_cost), total_points = sum(total_points)), list(Itern)],
+   dtSummary,
+   c('Itern')
+)
+
+pander(
+   dtSummary
+)
+
+
+```
+
+All the teams had 3 at the back but the combination seems to consist of premium defenders and at least one of the midfielders or forwards being a mid/low-budget option who is punching above his weight. It isn't easy to spot these low cost - high points players so being realistic, what if we remove some of the exceptional performers? I pick exceptional players as players at least 30 points above what the earlier linear regression predicts for their starting price.
+
+```{r WithoutOutliers, echo=FALSE, message=FALSE, warning=FALSE, error=FALSE, results = 'asis'}
+
+dtDatasetLastYear = dtDataset[season_name == vcLastFourSeasons[4]]
+
+dtDatasetLastYear = merge(
+   dtDatasetLastYear,
+   dtSensitivity[, list(season_name, position, intercept, slope)],
+   c('season_name','position')
+)
+
+dtDatasetLastYear = dtDatasetLastYear[total_points - (intercept + (start_cost * slope)) < 30]
+# dtDatasetLastYear = dtDatasetLastYear[abs(total_points - (intercept + (start_cost * slope))) < 20]
+
+lOptimaList = list() 
+
+for ( i in 1:5 ) {
+   
+   AvailableFinance <- 82
+   # AvailableFinance <- 82 + gwloop*.25
+   
+   lprec <- make.lp(0, nrow(dtDatasetLastYear))
+   set.type(lprec, seq(nrow(dtDatasetLastYear)), type = "binary")
+   
+   set.objfn(lprec, dtDatasetLastYear[, total_points])
+   
+   add.constraint(lprec, dtDatasetLastYear[, start_cost], "<=", AvailableFinance)
+   add.constraint(lprec, rep(1,nrow(dtDatasetLastYear)), "=", 11)
+   
+   add.constraint(lprec, dtDatasetLastYear[,as.character(position)=="GKP"], "=", 1)
+   add.constraint(lprec, dtDatasetLastYear[,as.character(position)=="DEF"], "<=", 5)
+   add.constraint(lprec, dtDatasetLastYear[,as.character(position)=="MID"], "<=", 5)  
+   add.constraint(lprec, dtDatasetLastYear[,as.character(position)=="FWD"], "<=", 3)
+   
+   add.constraint(lprec, dtDatasetLastYear[,as.character(position)=="DEF"], ">=", 3)
+   add.constraint(lprec, dtDatasetLastYear[,as.character(position)=="MID"], ">=", 1)
+   add.constraint(lprec, dtDatasetLastYear[,as.character(position)=="FWD"], ">=", 1)
+   
+   for ( i in unique(dtDatasetLastYear[,as.character(team)]))
+   {
+      add.constraint(lprec, dtDatasetLastYear[,as.character(team)==i], "<=", 3)
+   }
+   
+   set.bounds(lprec, lower = rep(0,nrow(dtDatasetLastYear)))
+   set.bounds(lprec, upper = rep(1,nrow(dtDatasetLastYear)))
+   
+   ColNames <- dtDatasetLastYear[, paste0(as.character(team_name), as.character(first_name), as.character(second_name))]
+   RowNames <- c("Finance", "NoOfPlayer","G=1","D<=5","M<=5","F<=3","D>=3","M>=2","F>=1",paste(unique(dtDatasetLastYear[,as.character(team)]),'<=3 players'))
+   
+   dimnames(lprec) <- list(RowNames, ColNames)
+   lp.control(lprec,sense='max')
+   # write.lp(lprec,'model.lp',type='lp') 
+   
+   solve(lprec)
+   get.objective(lprec)
+   
+   lOptimaList[[length(lOptimaList) + 1]] = dtDatasetLastYear[
+      get.variables(lprec) >0, 
+      c('id','first_name','second_name','position','team_name','total_points','start_cost'), 
+      with = FALSE
+   ][, Itern := as.integer(length(lOptimaList) + 1)]
+   
+   dtDatasetLastYear = dtDatasetLastYear[!id %in% lOptimaList[[length(lOptimaList)]][,id]]
+   
+}
+
+dtOptimaList = rbindlist(lOptimaList)
+rm(lOptimaList)
+
+pander(
+   dcast(
+      dtOptimaList[, 
+         list(
+            player_names = paste(
+               paste0(first_name, ' ', second_name,' (', round(total_points/start_cost), 'ppp @', start_cost ,')'), 
+               collapse = ', <br>'
+            )
+         ), 
+         list(Itern, position)
+      ],
+      Itern~position,
+      value.var = 'player_names'
+   )
+)
+
+
+dtSummary = dcast(
+   dtOptimaList[, 
+      .N, 
+      list(Itern, position_count = paste0(position, ' count'))
+   ], 
+   Itern~position_count
+)
+
+setDT(dtSummary)
+
+dtSummaryCost = dcast(
+   dtOptimaList[, 
+      list(start_cost = round(mean(start_cost), 1)), 
+      list(Itern, position_cost = paste0(position,' avg cost'))
+   ], 
+   Itern~position_cost
+)
+
+setDT(dtSummaryCost)
+
+dtSummary = merge(
+   dtSummaryCost,
+   dtSummary,
+   c('Itern')
+)
+
+dtSummary = merge(
+   dtOptimaList[, list(start_cost = sum(start_cost), total_points = sum(total_points)), list(Itern)],
+   dtSummary,
+   c('Itern')
+)
+
+pander(
+   dtSummary
+)
+
+```
+
+It's still 3 at the back except the defenders seem to be the more expensive ones. Note that quite a few of the premium players have also gotten omitted suggesting that the winning teams comprise of exceptional performers at all price brackets and not just the mid and low price brackets.
+
+### Conclusion
+
+Even if defenders offer better value for money, it still makes sense to go for 3 at the back.

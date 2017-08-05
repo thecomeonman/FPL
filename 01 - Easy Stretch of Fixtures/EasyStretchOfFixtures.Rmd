@@ -602,7 +602,7 @@ ggplot(dtData[GW > PlayedGW]) +
       plot.background = element_rect(fill = "grey95")
    ) +
    labs(
-      title = paste0('Favourable Stretches of Fixtures Being Played At Home as on', Sys.Date()),
+      title = paste0('Favourable Stretches of Fixtures Being Played At Home as on ', Sys.Date()),
       caption = paste0("\nAt least ", iNbrEasyMatches," matches over ", iGWStretch," gameweeks at ", iStatThreshold, "
       The black streaks mark the stretches with lots of home matches. The darker it is, the higher the rank of the team itself in recent weeks.
       Author: TheComeOnMan
