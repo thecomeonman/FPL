@@ -1,6 +1,6 @@
 ---
 title: "Optimal Team Configuration"
-output: html_document
+output: md_document
 ---
 
 There has been a lot of talk about defenders being better value for money than midfielders and forwards. I'd written a post about [the optimal team configuration](http://thecomeonman.blogspot.com/2014/08/fantasy-football-1-team-composition.html) a long time ago and since it was only one season of data, I thought I'd just check it again.
@@ -44,7 +44,7 @@ dtDataset = rbindlist(
             lPlayer = allplayers[[iPlayer]]
             lPlayerStatic = allplayersstatic$elements[[iPlayer]]
 
-            vcDetails = unlist(lPlayerStatic[c('team_code','first_name','second_name','element_type','team')])
+            vcDetails = unlist(lPlayerStatic[c('team_code','first_name','second_name','element_type','team','now_cost')])
 
             if ( length(lPlayer$history_past) > 0 ) {
 
@@ -341,6 +341,13 @@ What we care about eventually though is the points total so I tried to find the 
 
 lOptimaList = list() 
 dtDatasetLastYear = dtDataset[season_name == vcLastFourSeasons[4]]
+
+# if we had to optimise this year's team based on last year's points
+if ( T ) {
+   
+   dtDatasetLastYear[, start_cost := as.numeric(now_cost)/10 ]
+   
+}
 
 for ( i in 1:5 ) {
    
