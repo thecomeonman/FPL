@@ -1,13 +1,17 @@
 # script to scrape player data from FPL databases
 
 rm(list = ls())
-setwd('/media/ask/9b07b759-3e7b-49b4-b47d-3a60ba5b17fd/Personal/PersonalProjects/Fantasy League/Data/2017-18')
+setwd('/media/ask/Data/Personal/Projects/Personal/FPLData')
 
 library(data.table)
 library(RCurl)
 library(rjson)
 library(XML)
 
+dir.create(
+   'Players',
+   showWarnings = F
+)
 
 # looping through as many players until error
 lAllPlayers <- list()
@@ -40,15 +44,15 @@ iGameWeek = ifelse(
 tryCatch(
    {
       save(
-        list = c('lAllPlayers','lAllPlayersStatic'),
-        file = paste0('data_before_',formatC(iGameWeek, width = 2, flag = '0'),'.Rdata')
-     )
+         list = c('lAllPlayers','lAllPlayersStatic'),
+         file = paste0('data_before_',formatC(iGameWeek, width = 2, flag = '0'),'.Rdata')
+      )
    },
    error = function (e) {
       
       save(
-        list = c('lAllPlayers','lAllPlayersStatic'),
-        file = paste0('~/data_before_',formatC(iGameWeek, width = 2, flag = '0'),'.Rdata')
+         list = c('lAllPlayers','lAllPlayersStatic'),
+         file = paste0('~/data_before_',formatC(iGameWeek, width = 2, flag = '0'),'.Rdata')
       )
 
    }
