@@ -23,6 +23,12 @@ dir.create(
 viOverallStandingPagesToScrap = c(1:10, 100:110, 1000:1010, 10000:10010)
 lStandingsJSON = list()
 
+
+
+
+
+# Getting league standings to get managers
+# ------------------------------------------------------------------------------
 for ( iOverallStandingPagesToScrap in viOverallStandingPagesToScrap ) {
 
    print(iOverallStandingPagesToScrap)
@@ -43,7 +49,16 @@ for ( iOverallStandingPagesToScrap in viOverallStandingPagesToScrap ) {
 
 }
 
-viManagersToScrape = c()
+
+
+
+# Getting managers to scrape
+# ------------------------------------------------------------------------------
+
+viManagersToScrape = list.files(
+   'Managers'
+)
+
 for ( lStandingsJSONElement in lStandingsJSON ) {
 
    viManagersToScrape = c(
@@ -59,6 +74,16 @@ for ( lStandingsJSONElement in lStandingsJSON ) {
    )
 
 }
+
+viManagersToScrape = unique(viManagersToScrape)
+
+
+
+
+
+
+# Getting and saving manager data
+# ------------------------------------------------------------------------------
 
 for ( iManagerToScrape in viManagersToScrape ) {
 
@@ -114,8 +139,6 @@ for ( iManagerToScrape in viManagersToScrape ) {
             }
          )
 
-         print(AllGWsDone)
-
          if ( !file.exists(cFileName) ) {
 
             rm(cFileName)
@@ -127,9 +150,19 @@ for ( iManagerToScrape in viManagersToScrape ) {
 
       iGW = iGW + 1
 
+      # Was frequently getting some error related to all connections busy
+      # or something like that
+      closeAllConnections()
+
    }
    
 }
+
+
+
+# Saving leage data
+# ------------------------------------------------------------------------------
+
 
 # iGW carries over
 save(
@@ -141,6 +174,6 @@ save(
          width = 2,
          flag = '0'
       ),
-      '.Rdata
+      '.Rdata'
    )
 )
